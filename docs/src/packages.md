@@ -68,3 +68,21 @@ n, area = inte2d!(verts, [1.0, 0.0], 0.6)
 ```
 
 **Install:** `Pkg.add(url = "https://github.com/ADELIE-Org/VOFTools.jl")`
+
+### [isoap.jl](https://github.com/ADELIE-Org/isoap.jl)
+
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/isoap.jl/dev)
+[![CI](https://github.com/ADELIE-Org/isoap.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/isoap.jl/actions)
+
+Isosurface extraction on arbitrary polyhedra and grids — pure-Julia port of the ISOAP algorithm (López & Hernández, 2020).
+
+Reconstructs the surface `φ(x) = φ_iso` inside general polyhedral cells. Supports 15 built-in cell geometries, structured and OpenFOAM grids with VTK output, differentiable coordinates (ForwardDiff-compatible), a multithreaded grid extractor, and a KernelAbstractions kernel for GPU execution.
+
+```julia
+using ISOAP
+
+ws  = IsoapWorkspace()
+pol = isoap!(ws, cube(), φ_values, 0.0)   # extract iso-polygon at φ = 0
+```
+
+**Install:** `Pkg.dev("ISOAP")`
