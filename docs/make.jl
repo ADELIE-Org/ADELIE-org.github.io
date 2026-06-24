@@ -14,6 +14,7 @@ makedocs(
         "Home" => "index.md",
         "Packages" => "packages.md",
     ],
+    pagesonly = true,
     warnonly = true,
     remotes = nothing,
 )
@@ -21,7 +22,6 @@ makedocs(
 if get(ENV, "CI", "") == "true"
     deploydocs(
         repo = "github.com/ADELIE-org/ADELIE-org.github.io",
-        branch = "gh-pages",
         push_preview = false,
     )
 end
