@@ -49,3 +49,22 @@ end
 ```
 
 **Install:** `Pkg.add("Vofinit")`
+
+### [VOFTools.jl](https://github.com/ADELIE-Org/VOFTools.jl)
+
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/VOFTools.jl/dev)
+[![CI](https://github.com/ADELIE-Org/VOFTools.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/VOFTools.jl/actions)
+
+Geometrical tools for VOF methods: polygon/polyhedron truncation, volume-fraction computation, and PLIC reconstruction.
+
+Pure-Julia port of [VOFTools 5](https://www.dimf.upct.es/personal/lopez_jp/VOFTools/) (López & Hernández). Provides convex-cell truncation (`inte2d!`, `inte3d!`), area/volume computation, volume enforcement for general and rectangular cells (CIBRAVE), and material initialisation from an implicit interface. Zero-allocation hot paths, thread-safe, and AD-compatible.
+
+```julia
+using VOFTools
+
+# Truncate a unit square by the half-plane x ≤ 0.6 and get the cut area
+verts = [0.0 1.0 1.0 0.0; 0.0 0.0 1.0 1.0]
+n, area = inte2d!(verts, [1.0, 0.0], 0.6)
+```
+
+**Install:** `Pkg.add(url = "https://github.com/ADELIE-Org/VOFTools.jl")`
