@@ -4,8 +4,8 @@ makedocs(
     authors = "ADELIE-org contributors",
     sitename = "ADELIE",
     format = Documenter.HTML(
-        canonical = "https://ADELIE-org.github.io",
-        repolink = "https://github.com/ADELIE-org",
+        canonical = "https://ADELIE-Org.github.io",
+        repolink = "https://github.com/ADELIE-Org",
         collapselevel = 1,
         prettyurls = true,
         inventory_version = "0",
@@ -21,7 +21,7 @@ makedocs(
 
 if get(ENV, "CI", "") == "true"
     deploydocs(
-        repo = "github.com/ADELIE-org/ADELIE-org.github.io",
+        repo = "github.com/ADELIE-Org/ADELIE-org.github.io",
         push_preview = false,
     )
 end
