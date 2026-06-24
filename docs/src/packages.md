@@ -21,3 +21,31 @@ xc   = cell_center(grid, (3, 7))   # SVector coordinates
 ```
 
 **Install:** `Pkg.add("CartesianGrids")`
+
+## Geometry
+
+### [Vofinit.jl](https://github.com/ADELIE-org/Vofinit.jl)
+
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-org.github.io/Vofinit.jl/dev)
+[![CI](https://github.com/ADELIE-org/Vofinit.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-org/Vofinit.jl/actions)
+
+Volume-of-fluid (VOF) initialization — exact cell types and volume fractions from an implicit interface.
+
+Julia wrapper around the [VOFI](https://github.com/VOFTracking/vofi) library (`libvofi_jll`) for computing exact cell volume and type from a level-set function. Provides allocation-free callbacks for use in hot loops.
+
+```julia
+using Vofinit
+
+x0 = Cdouble.((0.0, 0.0, 0.0))
+h0 = Cdouble.((1.0, 1.0, 1.0))
+
+celltype = getcelltype(x0, h0) do x...
+    sum(x .* x) - 0.25          # implicit sphere of radius 0.5
+end
+
+vf = getcc(x0, h0) do x...
+    sum(x .* x) - 0.25
+end
+```
+
+**Install:** `Pkg.add("Vofinit")`
