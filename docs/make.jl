@@ -13,6 +13,7 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Packages" => "packages.md",
+        "Performance" => "performance.md",
     ],
     pagesonly = true,
     warnonly = true,
