@@ -24,6 +24,28 @@ xc   = cell_center(grid, (3, 7))   # SVector coordinates
 
 ## Geometry
 
+#### [CartesianGeometry.jl](https://github.com/ADELIE-Org/CartesianGeometry.jl)
+
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/CartesianGeometry.jl/dev)
+[![CI](https://github.com/ADELIE-Org/CartesianGeometry.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/CartesianGeometry.jl/actions)
+
+Cut-cell moment router — geometric moments of an implicit interface on a Cartesian grid, structured for the ADELIE operator algebra.
+
+Given a `CartesianGrids` grid and an interface representation, produces the full moment set — volume fractions `V`, wet barycentres, face apertures `A`, second-kind staggered volumes `W` and apertures `B` — as plain `AbstractArray`s. Single dispatch on the interface type routes to either `:vofi` (libvofi C library, fast Float64) or `:vofijul` (pure-Julia, AD- and GPU-capable). N-dimensional, byte-identical to the Penguin router, up to ~30× faster and ~150× lower-allocation on the pure-Julia path.
+
+```julia
+using CartesianGeometry, CartesianGrids
+
+disk(x, y) = sqrt(x^2 + y^2) - 0.5
+grid = CartesianGrid((-1.0, -1.0), (1.0, 1.0), (65, 65))
+ls   = LevelSetInterface(disk; backend = :vofi)
+
+m = integrate(Tuple{0}, ls, grid, Float64, nan)   # volume moments
+A = integrate(Tuple{1}, ls, grid, Float64, nan)   # face apertures
+```
+
+**Install:** `Pkg.add("CartesianGeometry")`
+
 ### Signed Distance / Volume-of-Fluid Initialization
 
 #### [Vofinit.jl](https://github.com/ADELIE-org/Vofinit.jl)
@@ -131,6 +153,19 @@ Cartesian front-tracking geometry primitives.
 [![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/FrontIntrinsicOps.jl/dev)
 [![CI](https://github.com/ADELIE-Org/FrontIntrinsicOps.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/FrontIntrinsicOps.jl/actions)
 
-Intrinsic differential operators on fronts and interfaces.
+Discrete exterior calculus (DEC) / FEEC toolkit on triangulated surface and polygonal curve meshes.
 
-**Install:** `Pkg.dev("FrontIntrinsicOps")`
+Provides geometry primitives (normals, areas, curvatures, Gauss–Bonnet), DEC/FEEC operators (incidence matrices `d₀`/`d₁`, Hodge stars, Laplace–Beltrami, Whitney forms, de Rham sequence), and surface PDE solvers (diffusion, advection–diffusion, heat-method geodesics, harmonic forms). Fully AD-compatible via ForwardDiff for shape sensitivity, multithreaded assembly, and a KernelAbstractions GPU backend.
+
+```julia
+using FrontIntrinsicOps
+
+mesh = generate_icosphere(1.0, 3)
+geom = compute_geometry(mesh)
+dec  = build_dec(mesh, geom)
+
+H = mean_curvature(mesh, geom, dec)   # ≈ 1/R on a unit sphere
+u = solve_surface_helmholtz(mesh, geom, dec, f, 1.0)
+```
+
+**Install:** `Pkg.add("FrontIntrinsicOps")`
