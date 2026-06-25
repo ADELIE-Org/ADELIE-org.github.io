@@ -35,17 +35,27 @@ Full / empty (non-cut) cells allocate ≈ 0 in all dimensions, and a plain
 `for cell; vofi_get_cc(...)` loop now allocates ≈ 0 per cell (not just the
 threaded batch driver), because the workspace is fetched from a per-thread cache.
 
+[`Vofinit`](https://github.com/ADELIE-Org/Vofinit.jl) (the `libvofi` C-library
+binding) had a different but equally important reduction. Its integrand callback
+used to take an untyped `Any` thunk, so the `Cdouble` result was **boxed once per
+quadrature-point evaluation** — allocation *grew with the quadrature order* `npt`
+(≈ 13 KB+ per cut cell). Routing the callback through a concretely-typed
+`FunctionWrapper` (`VofiCB`) makes the per-evaluation call allocation-free:
+
+| Path (per cut cell) | Original | ADELIE | Property |
+|---|--:|--:|---|
+| `Vofinit` `getcc` | ≈ 13 KB+ (∝ `npt`) | **≈ 80 B** | now **constant**, independent of quadrature order |
+
 ### The other geometry backends were already lean
 
-The remaining backends did **not** need an allocation rescue — their ports were
-allocation-free by design — so their gain is the *new capability* (AD / threading
-/ GPU) rather than a reduction:
+The remaining two backends did **not** need an allocation rescue — their ports
+were allocation-free by design — so their gain is the *new capability* (AD /
+threading / GPU) rather than a reduction:
 
 | Package | 2D | 3D | 4D | Note |
 |---|--:|--:|--:|---|
 | [`isoap`](https://github.com/ADELIE-Org/isoap.jl) | 0 B | 0 B | — | `isoap!`/`isopol!` 0-alloc; the GPU kernel core `isoap_cell!` is also 0-alloc (stack-only, device-ready) |
 | [`VOFTools`](https://github.com/ADELIE-Org/VOFTools.jl) | 0 B | 0 B | — | `inte2d!`/`inte3d!`/`enforv*` 0-alloc (TLS-pooled scratch) |
-| [`Vofinit`](https://github.com/ADELIE-Org/Vofinit.jl) | — | 0 B | — | typed `VofiCB` callback removed per-quadrature-point boxing in the libvofi binding |
 
 ## Runtime
 
