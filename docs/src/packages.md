@@ -144,9 +144,21 @@ pol = isoap!(ws, cube(), φ_values, 0.0)   # extract iso-polygon at φ = 0
 [![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/FrontCartesianGeometry.jl/dev)
 [![CI](https://github.com/ADELIE-Org/FrontCartesianGeometry.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/FrontCartesianGeometry.jl/actions)
 
-Cartesian front-tracking geometry primitives.
+Cut-cell geometric moments on a Cartesian grid from an explicit front — the front-tracking analogue of the level-set/VOF moment backends in the ADELIE geometry stack.
 
-**Install:** `Pkg.dev("FrontCartesianGeometry")`
+Takes a closed `CurveMesh` (2D) or `SurfaceMesh` (3D) from `FrontIntrinsicOps.jl` and returns, per cell, the wet volume fraction, barycentre, interface measure, cell type, face apertures, and second-kind staggered moments. Uses exact Sutherland–Hodgman polygon∩box clipping in 2D and its 3D analogue; converges O(h²) and matches the `vofi` backend element-by-element. Type-stable, allocation-free per cell, multithreaded, ForwardDiff-compatible for shape sensitivity.
+
+```julia
+using FrontCartesianGeometry, FrontIntrinsicOps
+
+front = sample_circle(0.5, 512)
+x = collect(range(-1.0, 1.0, length=129)); xyz = (x, copy(x))
+
+V, bary, iface, celltype, _ = integrate(Tuple{0}, front, xyz, Float64, nan)
+A = integrate(Tuple{1}, front, xyz, Float64, nan)   # face apertures
+```
+
+**Install:** `Pkg.add("FrontCartesianGeometry")`
 
 #### [FrontIntrinsicOps.jl](https://github.com/ADELIE-Org/FrontIntrinsicOps.jl)
 
