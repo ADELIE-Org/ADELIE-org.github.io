@@ -181,3 +181,29 @@ u = solve_surface_helmholtz(mesh, geom, dec, f, 1.0)
 ```
 
 **Install:** `Pkg.add("FrontIntrinsicOps")`
+
+#### [FrontSpaceTimeDEC.jl](https://github.com/ADELIE-Org/FrontSpaceTimeDEC.jl)
+
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://ADELIE-Org.github.io/FrontSpaceTimeDEC.jl/dev)
+[![CI](https://github.com/ADELIE-Org/FrontSpaceTimeDEC.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ADELIE-Org/FrontSpaceTimeDEC.jl/actions)
+
+Space-time DEC for moving fronts — the time-dependent companion to `FrontIntrinsicOps.jl`.
+
+Builds a one-slab worldsheet between two front states (`mesh_n` → `mesh_np1`): curve fronts sweep `(x,y,t) ∈ ℝ³`, surface fronts sweep `(x,y,z,t) ∈ ℝ⁴`. Provides space-time simplicial topology/incidence, barycentric dual measures and a diagonal Hodge star, and conservative moving-surface PDE assembly (mass, transport, diffusion, advection–diffusion) plus coupled nonlinear motion stepping. Type-stable, allocation-free on the hot geometric-measure path, ForwardDiff-differentiable through geometry → Hodge → assembly → solve (the linear solve routed through `FrontIntrinsicOps.linsolve`), multithreaded per-simplex fills, and a KernelAbstractions GPU path.
+
+```julia
+using FrontSpaceTimeDEC, FrontIntrinsicOps, StaticArrays
+
+N = 64
+ang   = [2π * (i - 1) / N for i in 1:N]
+edges = [SVector(i, i == N ? 1 : i + 1) for i in 1:N]
+mesh_n   = CurveMesh([SVector(cos(a), sin(a)) for a in ang], edges)
+mesh_np1 = CurveMesh([SVector(1.02cos(a), 1.02sin(a)) for a in ang], edges)
+
+slab = build_curve_slab(mesh_n, mesh_np1, 0.01)
+geom = compute_spacetime_geometry(slab)
+dec  = build_spacetime_dec(slab, geom)
+u_np1, _ = solve_slab!(slab, geom, dec, [sin(2a) for a in ang]; diffusivity = 0.05)
+```
+
+**Install:** `Pkg.add("FrontSpaceTimeDEC")`
