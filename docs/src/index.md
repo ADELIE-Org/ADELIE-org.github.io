@@ -1,6 +1,6 @@
 # ADELIE
 
-**Adaptive Discretization Ecosystem for Liquid–Interface Evolution**
+**Advanced Discretization Ecosystem for Liquid–Interface Evolution**
 
 ADELIE is a collection of open-source Julia packages for the numerical simulation of multiphase flows, phase change, and moving interfaces. Packages are independently usable but designed to compose around a shared set of conventions.
 
@@ -8,7 +8,7 @@ ADELIE is a collection of open-source Julia packages for the numerical simulatio
 
 | Pillar | Focus |
 |--------|-------|
-| **Adaptive** | Structured and adaptive numerical methods that track interfaces without over-resolving the bulk |
+| **Advanced** | Two-fluid fully coupled solvers, space-time discretizations, and adjoint-based optimization |
 | **Discretization** | Finite volume, cut-cell, and embedded-boundary schemes with clean component boundaries |
 | **Ecosystem** | Modular, composable packages with a common design language |
 | **Liquid–Interface** | Incompressible two-phase flows with surface tension, phase change, and topology changes |
