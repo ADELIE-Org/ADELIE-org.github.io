@@ -90,11 +90,11 @@ vf = vofi_get_cc((x, y, z) -> x^2 + y^2 + z^2 - 0.25,
                  (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 ```
 
-#### [ImplicitIntegration.jl](https://github.com/ELallinec/ImplicitIntegration.jl) *(external)*
+#### [ImplicitIntegration.jl](https://github.com/maltezfaria/ImplicitIntegration.jl) *(external)*
 
 Numerical integration over implicitly-defined domains and surfaces — integrates functions over regions `φ(x) ≤ 0` and boundaries `φ(x) = 0` without requiring coordinate transformations.
 
-**Install:** `Pkg.add(url = "https://github.com/ELallinec/ImplicitIntegration.jl")`
+**Install:** `Pkg.add(url = "https://github.com/maltezfaria/ImplicitIntegration.jl")`
 
 ### VOF
 
