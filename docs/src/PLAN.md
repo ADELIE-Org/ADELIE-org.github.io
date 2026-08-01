@@ -465,7 +465,15 @@ coupling schemes**. What each goal needs, and what already exists:
     tight-Picard per step. So low-Mach = {variable-density flow} +
     {N-species + reaction} + {a coupling recipe with IMEX}.
   - **Prerequisite the layout does not cover:** variable `μ` and `ρ` in the
-    operator layer (§5 A1/A2) — today both are coerced to scalars.
+    operator layer. ✅ **Done (2026-08-01)** — `ViscousOperators(sm; μ, mode)`
+    and `flow_mass`/`flow_convection_blocks(…; ρ)` accept a scalar, a per-cell
+    field, a per-face stack, or one field per velocity component, sharing the
+    scalar layer's `:harmonic`/`:arithmetic`/`:cell` face-meaning convention.
+    Uniform coefficients reproduce the old operators bit-for-bit. **Still
+    scalar-only in the *conditions* layer** — `velocity_flux_blocks`,
+    `velocity_border_closures`, `velocity_interface_closures` and
+    `velocity_jump_closures` all take a scalar `μ`, so an end-to-end
+    variable-`μ` *problem* through `AdelieFlow` needs that plumbing next.
 
 - **FSI** (P2) — the loads already exist (`interface_force`/`interface_torque`,
   action–reaction to 1e-12). What is new is a **body-DOF block** (6-DOF
