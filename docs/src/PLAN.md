@@ -7,9 +7,10 @@ flow, Darcy, and monophasic phase change are all implemented, registered, and
 gated. This revision records **what exists**, then plans the remaining work
 against the three target goals — **multicomponent phase change, combustion, FSI**.
 
-Sections §3–§6 of the old plan (coupling axes, motion regimes, nonlinearity,
-time integration) described a design that is now built. They are kept here,
-re-cast in the present tense, because the design is still the contract.
+The old plan's design sections (coupling axes, motion regimes, nonlinearity,
+time integration) described a design that is now built. They are kept in §2,
+re-cast in the present tense, because the design is still the contract. The
+goal→layer mapping is §4; the executed phase history is the appendix.
 
 ## 0. Where we stand
 
@@ -110,6 +111,37 @@ budgeted as genuinely hard, not as a port.
 
 ## 2. Architecture (built — this is the contract)
 
+### The discretization
+
+Capacities enter as diagonal weights; with bulk barycentric moments `B`, face
+apertures `A`, staggered volumes `W` and bulk (`Φω`) / interface (`Φγ`) unknowns,
+
+```
+G[d] = δ₋∘B[d]                    # bulk gradient
+H[d] = A[d]·δ₋ − δ₋∘B[d]          # interface gradient
+Winv                              # inverse staggered volume
+```
+
+and the monophasic block system is
+
+```
+[ Iᴰ GᵀW꜀G   Iᴰ GᵀW꜀H ] [ Φω ]
+[ Iᵦ HᵀW꜀G   Iᵦ HᵀW꜀H + Iₐ Γ ] [ Φγ ]
+```
+
+with `Iᴰ`/`Iᵦ`/`Iₐ` the condition-selection diagonals. Diphasic is two such
+blocks plus the jump rows. This is the math the whole stack rests on; it is
+unchanged from the port and is reproduced here so the plan is self-contained.
+
+### One package per physics, not per variant
+
+A deliberate departure from Penguin, which had ~15 solver repos with the block
+assembly reimplemented in each. ADELIE has **one scalar package, one flow
+package, one phase-change package**; variants are types and dispatch *inside*
+them, not new repositories. When a new physics arrives — combustion, FSI — the
+default answer is a new model type in the package that already owns that
+regime, plus a coupling recipe. A new repo needs a positive justification.
+
 ### The three operator paths
 
 An operator is *defined once*, symbolically, in FieldAlgebra; the path is a
@@ -132,10 +164,34 @@ jump rows break the tensor structure anyway. All Newton / monolithic / moving
 machinery runs on `:assemble` (direct, the moving hot path) and `:matrixfree`
 (Krylov, GPU, large systems).
 
+The operator API as it actually stands (`path` is the materialization choice):
+
+```julia
+using AdelieOperators, CartesianGeometry, CartesianGrids
+
+grid    = CartesianGrid((-1.0, -1.0), (1.0, 1.0), (33, 33))
+moments = integrate(LevelSetInterface((x, y) -> hypot(x, y) - 0.5;
+                                      backend = :vofijul), grid, Float64, nan)
+mb      = MomentBundle(moments)                      # also takes SpaceTimeMoments
+
+ops = DiffusionOperators(mb; path = :assemble)       # :kron | :assemble | :matrixfree
+lb  = laplacian(ops; coeff = 1, mode = :harmonic)    # K/C/J/L blocks
+
+q      = gradient(ops, Φω, Φγ)
+qω, qγ = gradient(ops, Φω, Φγ; split = true)
+d      = divergence(ops, qω, qγ)                     # discrete adjoint
+
+adv = AdvectionOperators(mb, uω, uγ; scheme = :upwind)
+c   = convection(adv, Φω, Φγ)
+
+update!(ops, mb_new)                                 # alloc-free refill in a time loop
+```
+
 ### Coupling — field↔field (`AdelieSolverCore`)
 
-A `CoupledProblem` is a set of named `SubProblem`s plus a `CouplingScheme`. No
-physics package knows how it is coupled. Three orthogonal axes:
+A `CoupledProblem` is a vector of `SubProblem`s (each an `assemble(states)`
+closure) plus a `CouplingScheme`. No physics package knows how it is coupled.
+Three orthogonal axes:
 
 1. **Topology** — `OneWay` (B reads A's converged solution) / `Partitioned`
    (block Gauss–Seidel fixed point, constant or Aitken relaxation) /
@@ -143,14 +199,31 @@ physics package knows how it is coupled. Three orthogonal axes:
    physics' residual w.r.t. another's unknowns — the thing Penguin could not do
    cheaply). Accuracy ladder one-way < partitioned-lagged <
    partitioned-to-tol ≈ monolithic; cost ladder reversed.
-2. **Solution context** — `SteadyCoupling` (the coupling iteration *is* the outer
-   solve) / `TimeLoop` (resolved every step).
-3. **Time splitting** (unsteady only) — `Unsplit` / `Lie` / `Strang` /
-   `IteratedStrang` / `IMEX`. **`IMEX` throws today**; `IteratedStrang` is
-   currently ≡ `Unsplit`.
+2. **Solution context** — steady (`CoupledProblem` + `solve!`, where the coupling
+   iteration *is* the outer solve) / unsteady (`CoupledTimeLoop` + `step!`,
+   resolved every step).
+3. **Time splitting** (unsteady only) — `Unsplit` / `Lie` / `Strang` are
+   implemented; **`IMEX` and `IteratedStrang` are reserved and throw.**
 
 Splitting error and coupling-iteration error are distinct; `step_report!` reports
 the latter numerically, the former still needs a reference solve.
+
+```julia
+using AdelieSolverCore
+
+flow = SubProblem(:flow, states -> build_flow_system(states[:heat]))
+heat = SubProblem(:heat, states -> build_heat_system(states[:flow]))
+
+# steady: the coupling iteration IS the outer solve
+prob = CoupledProblem([flow, heat], Partitioned(; relaxation = :aitken, rtol = 1e-8);
+                      init = Dict(:flow => u0, :heat => T0))
+res  = solve!(prob)                       # → CoupledResult(states, iterations, …)
+
+# unsteady: coupling resolved per macro-step (θ = 1/2 needed for 2nd order)
+loop   = CoupledTimeLoop([flow_t, heat_t], Unsplit(); θ = 0.5)
+states = Dict(:flow => u0, :heat => T0)
+step!(loop, states, Δt)
+```
 
 **Decided and unchanged: field↔field and field↔geometry coupling stay separate
 abstractions.** `CouplingScheme` governs field↔field only; interface motion lives
@@ -184,6 +257,20 @@ Organized by **regime**; the regime, not a flag, selects the machinery.
 
 ### Nonlinearity — one residual/Jacobian primitive
 
+**Where it comes from.** Nonlinearity is cross-cutting, not a per-physics
+afterthought. Across the target physics it enters as:
+
+- **nonlinear advection** — NS convection `u·∇u`; advection whose velocity
+  depends on the transported field;
+- **reaction** — Arrhenius `R(T, Yₖ)`, rate laws; often stiff;
+- **solution-dependent coefficients** — `κ(T)`, `μ(T)`, `ρ(T,Yₖ)`; harmonic or
+  arithmetic averaging of a solution-dependent diffusivity;
+- **nonlinear conditions** — Robin/radiation (`T⁴`), Gibbs–Thomson (curvature),
+  the Stefan flux balance;
+- **EOS / constraint** — low-Mach `ρ = P₀/RT` and the heat-release divergence
+  constraint (§P5);
+- **geometry** — free-boundary moments depend nonlinearly on interface position.
+
 Every ADELIE operator is a symbolic FieldAlgebra tree and `tangent` returns its
 exact Jacobian-as-stencil — assembled or matrix-free. So a nonlinear residual
 built from the same operators yields its Jacobian for free: no hand-coded Newton
@@ -196,6 +283,24 @@ The machinery runs at three scopes — **intra-block** (NS convection, reaction)
 and the topology axis decides the nesting: `Monolithic` fuses the active scopes
 into one Newton; `Partitioned` keeps them as nested loops. `newton!`/`picard!`
 reuse a cached factorization (`reuse=true`) on the fixed sparsity pattern.
+
+**Solve strategies** (in `AdelieSolverCore`, over LinearSolve / NonlinearSolve):
+
+- **Picard / lagged linearization** — freeze the nonlinear factor (velocity →
+  Oseen, coefficient → previous iterate), solve linear, repeat. Robust, linear
+  rate; the cheap default and the standard NS workhorse.
+- **Newton** — `J = tangent(F)`, solve `J δ = −F`. Quadratic; the default when
+  Picard stalls or high accuracy is needed. Cross-term Jacobians (reaction
+  `∂R/∂Yⱼ`, convection `∂(u·∇φ)/∂u`) come from `tangent`.
+- **Jacobian-free Newton–Krylov** — matrix-free `apply(J,·)` inside a Krylov
+  solve; never assemble `J`.
+- **Modified / quasi-Newton** — freeze and reuse the factorization across
+  iterations (`reuse = true`); refactor only when convergence degrades.
+- **Globalization** — line search / damping, and continuation/homotopy (ramp Re,
+  ramp reaction rate, ramp Gibbs–Thomson) for stiff or far-from-solution starts.
+  Picard or the explicit result seeds Newton.
+- **Stiffness** — IMEX treats a stiff reaction implicitly while advection stays
+  explicit; or go fully implicit Monolithic-Newton.
 
 Still missing here: **line search / trust region** in `newton!` (full steps
 only), and JFNK preconditioning.
@@ -212,6 +317,34 @@ only), and JFNK preconditioning.
   change `Vⁿ⁺¹ − Vⁿ` matches the swept-interface flux carried by `tγ`. Ψ⁺/Ψ⁻
   multiply **on the right** of K/C (flux of the time-blended field), which is
   what keeps flux antisymmetry at fresh/dead cells.
+
+**The stepper hierarchy.**
+
+1. **θ-method**, hand-rolled: explicit (θ=0), Crank–Nicolson (θ=½), implicit
+   Euler (θ=1). Reuses the cached `LinearSystem` factorization when `Δt` and the
+   operators are unchanged. The workhorse for both paradigms.
+2. **SciML integrators** (fixed-geometry MOL): SDIRK/ESDIRK, Rosenbrock(-W),
+   BDF/FBDF for stiff, explicit RK for non-stiff — with error-controlled adaptive
+   `Δt`. IMEX (`SplitODEProblem`; KenCarp/ARS tableaus) for the stiff-reaction /
+   non-stiff-transport split, once Core's `IMEX` lands (§4).
+3. **Slab stepper** (moving geometry): θ or a 2-level slab scheme over the
+   space-time moments.
+
+**How the step composes.** An implicit step *defines* the per-step residual
+`F(uⁿ⁺¹) = 0`; the nonlinear layer solves it and the coupling layer organizes the
+multiphysics inside it:
+
+- **fully implicit, unsplit, monolithic** = one Newton per step over all
+  unknowns (`J = tangent(F_total)`) — tightest;
+- **split** = `Strang`/`Lie` sequence the sub-steps, explicit terms evaluated
+  at `uⁿ`;
+- **partitioned** = each block does its own implicit solve, with an outer
+  Picard/Newton over the coupling closing the step.
+
+**Path dependence.** The θ-stepper + direct solve rides `:assemble` (cached
+factorization, alloc-free `update!` refill — the moving hot path); Krylov/JFNK
+stepping rides `:matrixfree`; `:kron` is never used in a production time loop
+(no alloc-free refill).
 
 Adaptive `Δt` for moving geometry goes through SciML as a genuine implicit DAE
 (`moving_dae_problem`), not a hand-rolled controller.
@@ -292,9 +425,68 @@ pure-conduction multicomponent Stefan is reachable without touching
 `AdelieFlow`. If the near-term objective is a multicomponent-phase-change result,
 do **P3+P4 first** and let P1 wait.
 
-## 4. Cross-cutting debts
+## 4. Physics coverage — how the goals map onto the layers
 
-- **`AdelieSolverCore`**: `IMEX` throws; `IteratedStrang` ≡ `Unsplit`;
+The target physics are combinations of a small set of primitives, **not new
+infrastructure**. Two knobs carry almost all of it: the **layout**
+(`UnknownLayout`, parametric in phase count × scalars per phase) and the **§2
+coupling schemes**. What each goal needs, and what already exists:
+
+- **N scalars per phase** — ✅ **done**. The base case of `AdelieScalar`:
+  `UnknownLayout(phases, scalars)`, each scalar with its own coefficients /
+  source / border+interface conditions; inter-scalar coupling (reactions) is a
+  block over scalars with the reaction Jacobian from `tangent` (`Monolithic`) or
+  a `Partitioned` sweep. No new package. Mono and diphasic, steady, transient
+  and moving.
+
+- **Flow + thermal** (forced / natural convection, Boussinesq, Rayleigh–Bénard)
+  — ✅ **done**. A `CoupledProblem` of `AdelieFlow` (u,p) + `AdelieScalar` (T):
+  `OneWay` for forced convection, `Monolithic` / `Partitioned` when buoyancy
+  feeds back. Validated to Ra = 1e6.
+
+- **Multicomponent phase change** (P3+P4) — the layout and the moving diphasic
+  N-scalar march already exist; what is new is *interface physics*, not
+  infrastructure: a mass-transfer species jump, a joint `(T, Y⃗)` interface
+  residual, composition-dependent `Tm`, Gibbs–Thomson. Henry partitioning
+  already works on a fixed interface (machine-exact).
+
+- **Low-Mach combustion** (P5) — the demanding goal, and the only one needing
+  genuinely new *model* pieces (still no new infrastructure). It couples flow ↔
+  thermal ↔ N species ↔ stiff chemistry with **variable density**:
+  - `AdelieFlow` gains a variable-density, constrained-divergence mode:
+    `∇·u = Q` set by heat release / species change (**not** zero), `P₀(t)` split
+    from the dynamic pressure, EOS `ρ = P₀/(RT)` closing the loop. Note that
+    `Gᵀm = s` — a non-zero continuity RHS — is *already* what the Darcy saddle
+    carries, so the constraint's structure exists.
+  - `AdelieScalar` carries N species + temperature with a stiff Arrhenius source
+    → `IMEX` (implicit chemistry/diffusion, explicit transport) or a
+    `Monolithic` Newton on the reaction block.
+  - The whole thing is one `CoupledProblem` resolved `Monolithic` or
+    tight-Picard per step. So low-Mach = {variable-density flow} +
+    {N-species + reaction} + {a coupling recipe with IMEX}.
+  - **Prerequisite the layout does not cover:** variable `μ` and `ρ` in the
+    operator layer (§5 A1/A2) — today both are coerced to scalars.
+
+- **FSI** (P2) — the loads already exist (`interface_force`/`interface_torque`,
+  action–reaction to 1e-12). What is new is a **body-DOF block** (6-DOF
+  Newton–Euler) coupled to the fluid, and moving-geometry flow underneath it.
+  Spiritually a coupling sub-problem, but driven by the geometry layer.
+
+- **Triphasic (later)** — falls out of the parametric layout:
+  `UnknownLayout(3, …)` adds a third phase block plus the extra jump rows. The
+  math and solver ride the same code exercised for mono/diph; only the
+  **geometry is genuinely harder** (triple junctions need per-phase moments at
+  junction cells — a reconstruction problem), and `jump_closure` ties exactly
+  two phases today. Generality lives in the type now; the implementation lands
+  when a triphasic geometry backend does.
+
+**Throughline: every goal = layout(phases × scalars) + a coupling recipe + (for
+low-Mach) a variable-density flow model.** Block assembly, AD Jacobians and the
+solver are shared — the modularity Penguin lacked.
+
+## 5. Cross-cutting debts
+
+- **`AdelieSolverCore`**: `IMEX` and `IteratedStrang` both throw (reserved);
   `Partitioned`-Newton missing (Picard only); `Monolithic` requires the user to
   hand-fuse sub-problems into one `BlockSystem` — a layout-stitching helper would
   remove that manual step; no line search in `newton!`; no threading; no GPU path
@@ -314,7 +506,7 @@ do **P3+P4 first** and let P1 wait.
   is uncatalogued. `PLAN.md` is not in `make.jl`'s `pages` and `pagesonly = true`,
   so it is not built into the site at all.
 
-## 5. Cross-cutting rules (unchanged)
+## 6. Cross-cutting rules (unchanged)
 
 - **Validation style**: element-by-element parity vs old Penguin wherever Penguin
   has the capability (this caught real bugs in the geometry and phase-change
@@ -328,7 +520,7 @@ do **P3+P4 first** and let P1 wait.
   package concentrates its moment access in a single `geometry.jl`.
 - **Deps resolve through `ADELIERegistry`**, never `[sources] {path=...}`.
 
-## 6. Open decisions
+## 7. Open decisions
 
 1. **Elastic FSI** — needs a solid-mechanics package (new) or an external
    coupling. Not scoped. Rigid-body FSI (P2) does not depend on this.
@@ -341,3 +533,52 @@ do **P3+P4 first** and let P1 wait.
 4. **GPU reach** — the geometry and operator layers are GPU-capable; the solver
    front door is KLU-direct. A GPU Krylov path would ride Core's matrix-free
    `SystemOperator`. Deferred until a problem size demands it.
+
+## Appendix — Phase history (2026-07-02 plan, as executed)
+
+The record of what was built and what gated it. Phases 0–5 are complete; Phase 6
+is partially complete and its remainder is folded into §5's debt list.
+
+**Phase 0 — hygiene.** Reconcile FieldAlgebra's docs with its code; write the
+moment↔algebra contract (halo convention, `cell_type` masking, the 8
+reconciliation points from the geometry audit).
+⚠️ **Partially done** — `FieldAlgebra/WIP.md` still marks `assemble`/`assemble!`
+as absent when `src/assemble.jl` implements them (§5).
+
+**Phase 1 — `AdelieOperators`.** Kronecker path ported as the oracle; the same
+operators expressed in FieldAlgebra (`tangent` → assemble / apply); the
+`MomentBundle` adapter normalizing `SpaceMoments` / `SpaceTimeMoments` and
+deriving fresh/dead masks.
+✅ *Gate: path 2 CSC == path 3 Kronecker element-by-element, 1D/2D/3D, all three
+interface reps, static + space-time; path 1 `apply` == assembled mat-vec.*
+
+**Phase 2 — conditions + solver core + first physics.** `CutCellConditions`
+(border/interface/jump, symbolic-first); `AdelieSolverCore` (`UnknownLayout`,
+`BlockSystem`, masking, θ-stepper, Picard/Newton, the coupling skeleton);
+`AdelieScalar` v0 monophasic diffusion.
+✅ *Gate: element-by-element parity vs Penguin `DiffusionUnsteadyMono`;
+manufactured 2nd-order convergence; a prescribed-motion case.*
+
+**Phase 3 — scalar completion.** Diphasic; advection–diffusion; reaction;
+N scalars per phase; `κ(x)` and `κ(u)`; moving geometry for all of it.
+✅ *Gate: Penguin parity + the AdelieValidation A–G convergence suites.*
+
+**Phase 4 — flow.** Staggered cut-cell layouts; Darcy → Stokes → Navier–Stokes
+(Picard + Newton via symbolic `tangent`, replacing Penguin's hand-coded Newton
+blocks).
+✅ *Gate: canonical Stokes, Schäfer–Turek 2D-1/2D-2, diphasic Hadamard.*
+❌ *Not covered by the gate, and still missing: moving geometry (§3 P1).*
+
+**Phase 5 — motion and phase change.** `InterfaceMotion` (the
+`AbstractInterfaceRep` contract, `ExplicitAdvection`, `InterfaceNewton` with the
+height-function and Levenberg–Marquardt corrections on AD residual Jacobians);
+`AdeliePhaseChange` monophasic Stefan.
+✅ *Gate: Frank disk/sphere and plane-front analytic Stefan with both updaters
+(Newton beats explicit at equal `Δt`); digit-for-digit PenguinStefan parity.*
+❌ *Rigid-body Regime 3 was scoped here and not built (§3 P2).*
+
+**Phase 6 — SciML + coupling maturity.** MOL export (`dae_problem` for every
+scalar family and flow); `Monolithic` coupling; Aitken relaxation; transient
+coupled orders (BE 1 / CN 2); Boussinesq to Ra = 1e6.
+⚠️ **Partially done** — still open: `IMEX`, `IteratedStrang`,
+`Partitioned`-Newton, automatic `Monolithic` assembly (§5).
