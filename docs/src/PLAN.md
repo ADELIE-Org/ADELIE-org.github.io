@@ -469,11 +469,13 @@ coupling schemes**. What each goal needs, and what already exists:
     and `flow_mass`/`flow_convection_blocks(…; ρ)` accept a scalar, a per-cell
     field, a per-face stack, or one field per velocity component, sharing the
     scalar layer's `:harmonic`/`:arithmetic`/`:cell` face-meaning convention.
-    Uniform coefficients reproduce the old operators bit-for-bit. **Still
-    scalar-only in the *conditions* layer** — `velocity_flux_blocks`,
+    Uniform coefficients reproduce the old operators bit-for-bit. The
+    **conditions layer follows** — `velocity_flux_blocks`,
     `velocity_border_closures`, `velocity_interface_closures` and
-    `velocity_jump_closures` all take a scalar `μ`, so an end-to-end
-    variable-`μ` *problem* through `AdelieFlow` needs that plumbing next.
+    `velocity_jump_closures` take the same forms, so operator and closures stay
+    consistent. What remains is `AdelieFlow` itself: `StokesProblem`/`FlowPhase`
+    still store one scalar `μ` and there is no sampling of a spatial `μ(x…)`
+    onto each component's mesh — that is the last hop to a variable-`μ` problem.
 
 - **FSI** (P2) — the loads already exist (`interface_force`/`interface_torque`,
   action–reaction to 1e-12). What is new is a **body-DOF block** (6-DOF
