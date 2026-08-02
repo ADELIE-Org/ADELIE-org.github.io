@@ -473,9 +473,17 @@ coupling schemes**. What each goal needs, and what already exists:
     **conditions layer follows** — `velocity_flux_blocks`,
     `velocity_border_closures`, `velocity_interface_closures` and
     `velocity_jump_closures` take the same forms, so operator and closures stay
-    consistent. What remains is `AdelieFlow` itself: `StokesProblem`/`FlowPhase`
-    still store one scalar `μ` and there is no sampling of a spatial `μ(x…)`
-    onto each component's mesh — that is the last hop to a variable-`μ` problem.
+    consistent. **`AdelieFlow` closed the loop (2026-08-02)**:
+    `StokesProblem`/`FlowPhase` accept a callable `μ(x…)`, resolved once by
+    `viscosity_field` in `geometry.jl` into one field per velocity component on
+    that component's own half-shifted mesh, and threaded to the operator *and*
+    every closure from a single source. Sampling uses the **geometric cell
+    centre**, never the wet centroid — a dry centroid is non-finite and the usual
+    `isfinite ? x : 0` fallback would plant a spurious viscosity jump on the
+    embedded boundary (the trap `AdelieScalar` documents for advection velocity).
+    Known limit: Newton **`continuation` throws** on a non-scalar `μ`, since it
+    replaces the viscosity outright; seed with `:picard` or march the transient.
+    Variable `μ`/`ρ` is therefore complete end to end, operator → physics.
 
 - **FSI** (P2) — the loads already exist (`interface_force`/`interface_torque`,
   action–reaction to 1e-12). What is new is a **body-DOF block** (6-DOF
