@@ -35,14 +35,15 @@ goal→layer mapping is §4; the executed phase history is the appendix.
   for every family and time-aware sources throughout. **This is the
   multicomponent-species infrastructure** the combustion and phase-change goals
   need; it is already built.
-- **`AdelieFlow`** (v0.8) — Stokes and Navier–Stokes on the staggered cut-cell
+- **`AdelieFlow`** (v0.11) — Stokes and Navier–Stokes on the staggered cut-cell
   MAC grid, steady and unsteady, monolithic (no projection, no splitting);
   diphasic Stokes/NS with a **fixed** interface, velocity continuity + prescribed
   normal-traction jump or `σκ` surface tension; `interface_force`/
   `interface_torque`; Boussinesq coupling both partitioned and monolithic.
   Validated: canonical Stokes (inclined channel, Basilisk couette/wannier,
   Womersley), Schäfer–Turek 2D-1/2D-2, Hadamard–Rybczynski, de Vahl Davis to
-  Ra = 1e6. **Fixed geometry only** — see §1.
+  Ra = 1e6. **Prescribed moving geometry for Stokes** (space-time slab, discrete
+  GCL gated); Navier–Stokes and diphasic are still fixed-geometry — see §1.
 - **`AdelieDarcy`** — mixed saddle Darcy, mono/diphasic, tensor mobility,
   gravity, interface force, and **prescribed moving geometry** via the slab.
 - **`AdeliePhaseChange`** — **monophasic** Stefan only. Explicit (level-set and
@@ -102,9 +103,11 @@ of the fluid→body transfer. Missing:
 
 ### The single blocker under all three
 
-**`AdelieFlow` has no moving-geometry path.** `AdelieScalar` and `AdelieDarcy`
-both ride `integrate_spacetime` → space-time slab; `AdelieFlow` does not — there
-is no `moving`/`slab` code in its `src/`. FSI needs it directly; Stefan flow and
+**`AdelieFlow` had no moving-geometry path.** `AdelieScalar` and `AdelieDarcy`
+both ride `integrate_spacetime` → space-time slab; as of 2026-08-02 `AdelieFlow`
+does too, for **Stokes** (`src/moving.jl` + Core's `moving_stokes_slab`, discrete
+GCL gated — see P1). Navier–Stokes and diphasic moving remain, so the blocker is
+narrowed, not gone. FSI needs it directly; Stefan flow and
 boiling need it; any moving-interface combustion needs it. It is also the place
 where discrete GCL and degenerate small-cell rows bite hardest, so it should be
 budgeted as genuinely hard, not as a port.
@@ -361,9 +364,47 @@ existing `moving_mono_slab`/`moving_diph_slab`, plus the `AdelieFlow` driver and
 a `MovingLevelSet` interface spec (as `AdelieScalar` and `AdelieDarcy` already
 have).
 
-**Gates:** free-stream preservation on a translating cut wall (the discrete GCL
-test — this is the one that fails first); prescribed oscillating cylinder against
-a body-fitted reference; then moving *diphasic* with `σκ` — a rising-bubble case.
+**🟡 Moving STOKES lands 2026-08-02; Navier–Stokes and diphasic remain.**
+
+- ✅ `MovingLevelSet` + `slab_staggered_moments` in `AdelieFlow` — the staggered
+  space-time slab is as free as the static one (the same `integrate_spacetime`
+  on the `N+1` half-shifted grids). **Each velocity component gets its own
+  fresh/dead set**: the MAC meshes are shifted differently, so the interface
+  crosses them at different times, and collapsing them onto one mask is the
+  classic way to lose the discrete GCL. Gated directly.
+- ✅ `moving_stokes_slab` in Core. Three deliberate departures from the Penguin
+  reference, each matching what the scalar and Darcy slabs already do: `uγ` is a
+  mid-slab unknown at **full weight with no history** (the reference's
+  `C·Ψ⁻·uγⁿ` reads a previous-slab trace that does not exist on a newly-cut
+  cell — the documented θ<1 moving-march error class); **no explicit `Δt`**; and
+  `Ψ` multiplies on the **right, carrying the column's component**.
+- ✅ `solve(prob, tspan; Δt, θ)` on `MovingIntegrator`, plus `interface_force`/
+  `interface_torque` on the geometry at each solution's own instant. The **same
+  `StokesProblem`** describes fixed and moving — only the spec changes.
+- ⬜ `moving_ns_slab` (convection), ⬜ moving diphasic with `σκ`.
+
+**Gate results.** Free-stream preservation on a translating cut wall — the test
+this plan predicted would fail first — **passes**: `7.9e-10` (BE) and `9.4e-10`
+(CN) on a slab with genuine fresh *and* dead cells in both components, no growth
+under refinement. Verified load-bearing rather than trusted: zeroing the
+`(M⁰−M¹)` GCL block moves it to `3.6e-3`, a factor of ~10⁶. Force on a co-moving
+body is `3e-11`–`8e-8`; a dragged body's `F_x/(μW)` is speed-independent, as
+Stokes drag must be; an oscillating body returns its geometry after one period to
+`3.9e-18`. Remaining gates: oscillating cylinder against a body-fitted reference,
+then moving diphasic (rising bubble).
+
+**Two findings worth carrying forward.**
+1. *Upstream, in the geometry layer.* A **stationary** `MovingLevelSet` reduces
+   to the fixed march only to ~0.5% relative, and the gap is **Δt-independent**
+   — so it is quadrature, not time discretization. The slab **volume** is exactly
+   `Δt ×` the static volume (`2e-16`), but the cut-face **apertures** are not:
+   ~20 of 1089 cells differ, by up to `0.025·h`. This is `CartesianGeometry`'s
+   space-time vs static integration, and it bounds how closely *any* moving march
+   can track the fixed one. It does not affect the GCL, which is about the slab's
+   internal consistency.
+2. *Sliver conditioning, not truncation.* The co-moving error **grows** with
+   refinement (`7e-12` at n=17, `2e-8` at n=33). Harmless at this size; it is the
+   quantity to watch if it ever reaches a physically meaningful magnitude.
 
 **Budget it as hard.** The two things that decide whether the order survives are
 the space-time capacities and the linearised traction row; degenerate
