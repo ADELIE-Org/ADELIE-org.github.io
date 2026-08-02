@@ -477,10 +477,15 @@ coupling schemes**. What each goal needs, and what already exists:
     `StokesProblem`/`FlowPhase` accept a callable `μ(x…)`, resolved once by
     `viscosity_field` in `geometry.jl` into one field per velocity component on
     that component's own half-shifted mesh, and threaded to the operator *and*
-    every closure from a single source. Sampling uses the **geometric cell
-    centre**, never the wet centroid — a dry centroid is non-finite and the usual
-    `isfinite ? x : 0` fallback would plant a spurious viscosity jump on the
-    embedded boundary (the trap `AdelieScalar` documents for advection velocity).
+    every closure from a single source. Sampling is at the **wet cell centroid**,
+    the same convention `AdelieScalar`'s `_coeff_field` uses for a spatial
+    `κ(x…)`: that is where the cell's mass sits, and on a cut cell the geometric
+    centre can lie entirely in the dry region, mis-stating `μ` in exactly the band
+    where a contrast matters. Dry cells (non-finite centroid) fall back to the
+    component's geometric DOF centre — a real value of `μ`, never the
+    `isfinite ? x : 0` fallback, which invents a coefficient and plants a spurious
+    viscosity jump on the boundary (the trap `AdelieScalar` documents for
+    advection velocity, where it costs an order).
     Known limit: Newton **`continuation` throws** on a non-scalar `μ`, since it
     replaces the viscosity outright; seed with `:picard` or march the transient.
     Variable `μ`/`ρ` is therefore complete end to end, operator → physics.
