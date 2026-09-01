@@ -443,6 +443,41 @@ pieces are the species interface condition (equilibrium / Henry partitioning
 **Gates:** binary-alloy solidification with solute rejection; an evaporating
 droplet with a species-driven `ṁ`.
 
+### P3/P4 capability matrix — stepper × representation × physics
+
+The phase-change line is a grid, not a list: every physics rung must exist for
+each interface representation and for **both** steppers — the classical
+**explicit** march (still on the space-time slab: geometry from the blended
+nodal field, T solved on the slab, front advanced from the Stefan speed) and
+the **coupled Newton** (`InterfaceNewton`: the interface unknowns solved jointly
+with the field so the Stefan residual is zero at the slab end). State as of
+2026-09-01 (AdeliePhaseChange 0.1.2, InterfaceMotion 0.1.0):
+
+| Representation | Explicit (slab) | Coupled Newton |
+|---|---|---|
+| Level-set | ✅ | — by design: no Newton on a reinitialised level set |
+| Global height function | ✅ | ✅ `:ghf_newton` (digit-for-digit Penguin parity) |
+| Front tracking | ✅ | ✅ `:ft_lm` (AD volume-Jacobian; ~38–83× explicit accuracy at equal Δt) |
+| VOF | ❌ no `VOFRep` yet | ❌ STPLIC is discontinuous in `α` — needs a Newton-compatible reconstruction first |
+
+| Physics | Explicit | Coupled Newton |
+|---|---|---|
+| Scalar `T`, monophasic | ✅ (3 reps) | ✅ (GHF, FT) |
+| Scalar `T`, diphasic | ❌ blocked on `TODO.md` §A2 | ❌ |
+| Multiscalar `(T, Y⃗)` — joint interface residual | ❌ | ❌ (residual is thermal-only today) |
+| Scalar + flow — Stefan flow `u·n = (1 − ρS/ρL)·Vₙ` | ❌ needs P1 rung 3 (`moving_ns_slab`) | ❌ |
+| Multiscalar + flow | ❌ | ❌ |
+
+Only the monophasic-thermal block is filled. Three independent blockers gate
+the rest: **§A2** (the diphasic row), **`moving_ns_slab`** (the +flow rows),
+and a **VOF representation** with a smoothed reconstruction (the VOF column).
+
+**Sequencing:** §A2 → diphasic scalar (explicit first, then GHF/FT Newton;
+gate: two-phase Frank sphere, GT dendrite tip) → multiscalar joint residual
+(gate: binary-alloy solidification, evaporating droplet) → Stefan flow once
+`moving_ns_slab` exists (gate: the analytic density-change λ-solution, exact
+zero flow at ρS = ρL) → multiscalar + flow → VOF last, explicit before Newton.
+
 ### P5 — Low-Mach combustion
 
 - `AdelieFlow` gains the **variable-density constrained-divergence** mode:
