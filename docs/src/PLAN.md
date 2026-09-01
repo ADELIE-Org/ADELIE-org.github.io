@@ -364,7 +364,7 @@ existing `moving_mono_slab`/`moving_diph_slab`, plus the `AdelieFlow` driver and
 a `MovingLevelSet` interface spec (as `AdelieScalar` and `AdelieDarcy` already
 have).
 
-**🟡 Moving STOKES lands 2026-08-02; Navier–Stokes and diphasic remain.**
+**🟡 Moving STOKES lands 2026-08-02; moving NAVIER–STOKES lands 2026-09-01; diphasic remains.**
 
 - ✅ `MovingLevelSet` + `slab_staggered_moments` in `AdelieFlow` — the staggered
   space-time slab is as free as the static one (the same `integrate_spacetime`
@@ -381,7 +381,19 @@ have).
 - ✅ `solve(prob, tspan; Δt, θ)` on `MovingIntegrator`, plus `interface_force`/
   `interface_torque` on the geometry at each solution's own instant. The **same
   `StokesProblem`** describes fixed and moving — only the spec changes.
-- ⬜ `moving_ns_slab` (convection), ⬜ moving diphasic with `σκ`.
+- ✅ **Moving Navier–Stokes (2026-09-01, Core 0.26 `moving_flow_convection`,
+  Flow 0.12).** The convective term is the plain Eulerian `∮ u(u·n)` on the
+  time-integrated slab moments — bulk stencil + cut-face flux with the wall
+  velocity at each cell's own `tγ` — because the slab momentum row already
+  discretizes `∫∫∂ₜu` with the `(M⁰−M¹)uγ` GCL block; no relative velocity
+  appears anywhere. Column weights are plain `θ/(1−θ)` (the fresh/dead `Ψ`
+  rule would zero ghost-filled data columns and break the free stream at every
+  halo). Gates: free stream through a sweeping wall with convection on
+  (u 1e-14, p 7e-15, BE and CN); a stationary slab reproduces the fixed NS
+  θ-step to 1e-7; a dragged body at Re>0 feels drag and no lift; Newton
+  quadratic. No dedicated Flow testset yet — the gates ran as scripts.
+- ⬜ moving diphasic with `σκ` (rising bubble); ⬜ oscillating cylinder vs a
+  body-fitted reference.
 
 **Gate results.** Free-stream preservation on a translating cut wall — the test
 this plan predicted would fail first — **passes**: `7.9e-10` (BE) and `9.4e-10`
@@ -394,14 +406,25 @@ Stokes drag must be; an oscillating body returns its geometry after one period t
 then moving diphasic (rising bubble).
 
 **Two findings worth carrying forward.**
-1. *Upstream, in the geometry layer.* A **stationary** `MovingLevelSet` reduces
-   to the fixed march only to ~0.5% relative, and the gap is **Δt-independent**
-   — so it is quadrature, not time discretization. The slab **volume** is exactly
-   `Δt ×` the static volume (`2e-16`), but the cut-face **apertures** are not:
-   ~20 of 1089 cells differ, by up to `0.025·h`. This is `CartesianGeometry`'s
-   space-time vs static integration, and it bounds how closely *any* moving march
-   can track the fixed one. It does not affect the GCL, which is about the slab's
-   internal consistency.
+1. ~~*Upstream, in the geometry layer.* A **stationary** `MovingLevelSet` reduces
+   to the fixed march only to ~0.5% relative …~~ **RESOLVED 2026-09-01 — it was
+   the STATIC side.** The static 2-D face apertures (`A` and `B`, on `:vofi`,
+   `:vofijul` and the GPU kernel alike) located the level-set crossing by a
+   *linear interpolation* of the two endpoint values — a Penguin-verbatim secant,
+   O(κh²) per face (0.033·h on a disk at h = 1/32). The space-time faces go
+   through the full cut-cell engine and were exact all along. CartesianGeometry
+   0.3.0 replaces the secant with an exact bracketed crossing at all three
+   sites; static `A`/`B` now equal the slab's to 3e-15 and the stationary-slab
+   reduction holds to 1e-9 (Stokes) / 1e-7 (NS). Every 2-D curved-cut static
+   number in the stack changed by that amount; no test pin moved (the parity
+   pins are 1-D/planar). **Consequence for §P1/§5:** PLAN-flow's curved-wall
+   error localization (rotating cylinders ~1, torque divergence, "no interface
+   first-moment correction") was measured WITH the secant apertures and must be
+   re-measured before anyone implements the first-moment correction.
+   A second latent bug fell out of the same gate: `FlowConvectionCache` built
+   at `u = 0` had an empty sparsity pattern, so the **fixed-geometry** NS
+   transient march from rest had no convection past its first Newton iterate
+   (AdelieOperators 0.3.1). The moving march was right; the references were not.
 2. *Sliver conditioning, not truncation.* The co-moving error **grows** with
    refinement (`7e-12` at n=17, `2e-8` at n=33). Harmless at this size; it is the
    quantity to watch if it ever reaches a physically meaningful magnitude.
